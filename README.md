@@ -1,12 +1,12 @@
 # LocalAI Research Assistant
 
-LocalAI Research Assistant is a local-first AI engineering portfolio project for ingesting web content, extracting research-ready text, and producing structured research outputs with locally hosted language models. It uses Ollama through an OpenAI-compatible interface, so the research engine stays model-independent and does not require hosted API keys.
+LocalAI Research Assistant is a local-first AI engineering portfolio project for ingesting web content, extracting research-ready text, producing structured research outputs, and comparing local model behavior. It uses Ollama through an OpenAI-compatible interface, so research and evaluation logic stay model-independent.
 
 This is an original portfolio project designed to demonstrate practical AI engineering patterns with privacy-conscious local inference.
 
 ## Why Local-First AI
 
-Local-first AI keeps prompts, extracted page text, and generated research outputs on your machine. That improves privacy, reduces dependency on external model services, and makes research workflows easier to run repeatedly without per-request API costs.
+Local-first AI keeps prompts, extracted page text, generated research outputs, and comparison results on your machine. That improves privacy, reduces dependency on hosted model services, and makes research workflows easier to run repeatedly without per-request API costs.
 
 Ollama provides local model hosting and an OpenAI-compatible API, which lets this project use the OpenAI Python client while targeting `http://localhost:11434/v1`.
 
@@ -25,7 +25,9 @@ Ollama provides local model hosting and an OpenAI-compatible API, which lets thi
 - Research engine for summaries, key facts, topics, question answering, and reports
 - Structured Pydantic research outputs
 - Grounded prompts that require answers to use only extracted page content
-- CLI modes for direct prompts and URL research tasks
+- Model comparison across local Ollama models
+- Lightweight deterministic evaluation metrics
+- Text and JSON comparison output
 - Offline unit tests with mocked HTTP, browser, and LLM dependencies
 - Ruff linting
 
@@ -41,18 +43,19 @@ WebIngestor
 WebDocument
   |
   v
-Research Engine
-  |-- Summary
-  |-- Key Facts
-  |-- Topics
-  |-- Question Answering
-  |-- Research Report
+ResearchEngine
+  |
+  |-- llama3.2
+  |-- gemma3
   |
   v
-LLMProvider
+ModelComparator
   |
   v
-Structured Result
+Evaluation Metrics
+  |
+  v
+ModelComparisonResult
 ```
 
 ```text
@@ -74,18 +77,19 @@ app/
     prompts.py             # Model-independent prompt builders
     parsers.py             # JSON parsing and Pydantic validation
     engine.py              # Research task orchestration over WebDocument
+  evaluation/
+    models.py              # Comparison and metric result models
+    metrics.py             # Deterministic task-specific checks
+    comparator.py          # Multi-model comparison runner
+    formatter.py           # Text and JSON comparison formatting
   services/
-    research_service.py    # URL ingestion plus research engine orchestration
+    research_service.py    # URL ingestion plus research/evaluation orchestration
   main.py                  # CLI entry point
 ```
 
 ## Website Ingestion Strategy
 
-The ingestor tries static scraping first because it is faster, has lower overhead, and does not require launching a browser. Static scraping handles many content pages, blogs, docs, marketing pages, and simple websites well.
-
-If the static result is too short or looks like a JavaScript-required placeholder, the ingestor falls back to Playwright. The fallback uses headless Chromium to render the page, then sends the rendered HTML through the same normalization path as the static scraper.
-
-The current usability heuristic checks minimum extracted text length, obvious JavaScript-required messages, and placeholder loading content.
+The ingestor tries static scraping first because it is faster, has lower overhead, and does not require launching a browser. If the static result is too short or looks like a JavaScript-required placeholder, the ingestor falls back to Playwright.
 
 ## Research Engine
 
@@ -98,11 +102,42 @@ Supported outputs:
 - `QuestionAnswer`
 - `ResearchReport`
 
-The prompts are provider-independent and are kept separate from orchestration logic. That makes the same research task runnable against `llama3.2`, `gemma3`, or future models without changing the research flow.
+The prompts are provider-independent, so the same research task can run against `llama3.2`, `gemma3`, or future models without changing research logic.
+
+## Model Comparison
+
+Phase 4 adds side-by-side comparison for the same research task over the same ingested `WebDocument`. The website is not refetched for each model. Only model generation and structured parsing are repeated per model.
+
+Comparison supports:
+
+- summaries
+- key facts
+- topics
+- grounded question answering
+- research reports
+
+The comparator records per-model success or failure and continues running remaining models if one model fails.
+
+## Evaluation Metrics
+
+Evaluation is deterministic and intentionally lightweight. It is useful for portfolio demos and regression checks, but it is not a replacement for human review or a judge-model evaluation system.
+
+Supported checks include:
+
+- model-call latency in milliseconds
+- response character count and word count
+- structured output validity
+- required field completeness
+- fact evidence presence
+- grounded Q&A behavior
+- explicit insufficient-information behavior
+- task success or failure
+
+The CLI reports fastest model and valid models, but it does not declare a best model based only on speed.
 
 ## Source Grounding
 
-Research prompts instruct the model to use only the extracted webpage content, avoid inventing facts, ignore boilerplate, and explicitly say when information is not present.
+Research prompts instruct the model to use only extracted webpage content, avoid inventing facts, ignore boilerplate, and explicitly say when information is not present.
 
 For question answering, the expected unknown-answer text is:
 
@@ -114,7 +149,7 @@ Answers and facts include evidence snippets when practical.
 
 ## Context Limit
 
-Phase 3 uses a simple deterministic context strategy rather than full RAG. Extracted page text is capped by `MAX_CONTEXT_CHARS`. If content is too large, the engine preserves the beginning and end of the page text with a clear truncation marker in the middle.
+The project uses a simple deterministic context strategy rather than full RAG. Extracted page text is capped by `MAX_CONTEXT_CHARS`. If content is too large, the engine preserves the beginning and end of the page text with a clear truncation marker in the middle.
 
 Embeddings, vector databases, and chunk retrieval are intentionally left for later phases.
 
@@ -137,15 +172,10 @@ Install Ollama from:
 https://ollama.com
 ```
 
-Pull the default model:
+Pull the primary local models:
 
 ```powershell
 ollama pull llama3.2
-```
-
-Optional alternate model:
-
-```powershell
 ollama pull gemma3
 ```
 
@@ -190,46 +220,57 @@ Run the original direct prompt smoke test:
 uv run python -m app.main
 ```
 
-Use a different model:
-
-```powershell
-uv run python -m app.main --model gemma3
-```
-
-Summarize a URL:
+Run a single-model research task:
 
 ```powershell
 uv run python -m app.main --url https://edwarddonner.com --task summary
-```
-
-Extract key facts:
-
-```powershell
 uv run python -m app.main --url https://edwarddonner.com --task facts
-```
-
-Extract topics:
-
-```powershell
 uv run python -m app.main --url https://edwarddonner.com --task topics
-```
-
-Ask a grounded question:
-
-```powershell
-uv run python -m app.main --url https://edwarddonner.com --task ask --question "What is Edward Donner's professional background?"
-```
-
-Generate a Markdown-style report:
-
-```powershell
 uv run python -m app.main --url https://edwarddonner.com --task report
+uv run python -m app.main --url https://edwarddonner.com --task ask --question "What does this person do?"
 ```
 
-Run any URL task with another installed model:
+Compare `llama3.2` and `gemma3`:
 
 ```powershell
-uv run python -m app.main --url https://edwarddonner.com --task facts --model gemma3
+uv run python -m app.main --url https://edwarddonner.com --task summary --compare llama3.2 gemma3
+uv run python -m app.main --url https://edwarddonner.com --task facts --compare llama3.2 gemma3
+uv run python -m app.main --url https://edwarddonner.com --task report --compare llama3.2 gemma3
+uv run python -m app.main --url https://edwarddonner.com --task ask --question "What does this person do?" --compare llama3.2 gemma3
+```
+
+Emit comparison JSON:
+
+```powershell
+uv run python -m app.main --url https://edwarddonner.com --task summary --compare llama3.2 gemma3 --output json
+```
+
+Sample comparison output:
+
+```text
+Task: summary
+Source: https://edwarddonner.com/
+Ingestion: static
+
+Model: llama3.2
+Latency: 2,814 ms
+Structured output: valid
+Task success: PASS
+Response length: 620 chars
+Completeness: PASS
+Grounding: PASS
+
+Model: gemma3
+Latency: 4,102 ms
+Structured output: valid
+Task success: PASS
+Response length: 715 chars
+Completeness: PASS
+Grounding: PASS
+
+Comparison
+Fastest: llama3.2
+Valid models: llama3.2, gemma3
 ```
 
 ## Test And Lint
@@ -247,15 +288,15 @@ This scraper does not attempt to defeat anti-bot systems, authentication, paywal
 
 The current context strategy truncates long pages without semantic retrieval. Very long pages may lose details from the middle of the document until a later retrieval phase is added.
 
-The ingestion layer is designed for useful research extraction, not perfect archival reproduction of every page element.
+The deterministic evaluation checks are basic quality signals. They can identify parse failures, missing fields, missing evidence, latency differences, and obvious incomplete outputs, but they do not prove factual correctness or overall answer quality.
 
 ## Roadmap
 
 1. Core local LLM layer ✅
 2. Website ingestion ✅
 3. Research engine ✅
-4. Model comparison
+4. Model comparison & evaluation ✅
 5. FastAPI backend
 6. Gradio UI
-7. Evaluation, testing, and logging
+7. Advanced evaluation/logging
 8. Portfolio polish

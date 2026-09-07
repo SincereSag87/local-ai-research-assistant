@@ -1,6 +1,7 @@
 import argparse
 from collections.abc import Sequence
 
+from app.evaluation.formatter import format_comparison_json, format_comparison_text
 from app.ingestion import IngestionError
 from app.llm import (
     LLMError,
@@ -49,6 +50,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Question to answer when --task ask is selected.",
     )
+    parser.add_argument(
+        "--compare",
+        nargs="+",
+        default=None,
+        help="Compare the selected task across models, such as llama3.2 gemma3.",
+    )
+    parser.add_argument(
+        "--output",
+        choices=("text", "json"),
+        default="text",
+        help="Output format for comparison results.",
+    )
     return parser
 
 
@@ -63,6 +76,18 @@ def main() -> int:
             if args.task == "ask" and not args.question:
                 print("--question is required when --task ask is selected.")
                 return 1
+            if args.compare:
+                comparison = service.compare_url_task(
+                    url=args.url,
+                    task=args.task,
+                    question=args.question,
+                    models=args.compare,
+                )
+                if args.output == "json":
+                    print(format_comparison_json(comparison))
+                else:
+                    print(format_comparison_text(comparison))
+                return 0
             _run_url_task(
                 service=service,
                 url=args.url,

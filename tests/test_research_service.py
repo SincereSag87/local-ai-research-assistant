@@ -1,3 +1,4 @@
+from app.evaluation import ModelComparisonResult
 from app.ingestion import WebDocument
 from app.llm import ChatResponse
 from app.research import KeyFact, QuestionAnswer, ResearchReport, ResearchSummary
@@ -64,8 +65,37 @@ class FakeEngine:
         )
 
 
+class FakeComparator:
+    def __init__(self):
+        self.calls = []
+
+    def compare_summary(self, document, models):
+        self.calls.append(("summary", document, models))
+        return make_comparison_result(document, "summary", models)
+
+    def compare_facts(self, document, models):
+        self.calls.append(("facts", document, models))
+        return make_comparison_result(document, "facts", models)
+
+    def compare_topics(self, document, models):
+        self.calls.append(("topics", document, models))
+        return make_comparison_result(document, "topics", models)
+
+    def compare_question(self, document, question, models):
+        self.calls.append(("ask", document, question, models))
+        return make_comparison_result(document, "ask", models)
+
+    def compare_report(self, document, models):
+        self.calls.append(("report", document, models))
+        return make_comparison_result(document, "report", models)
+
+
 class FakeIngestor:
+    def __init__(self):
+        self.calls = 0
+
     def ingest(self, url: str) -> WebDocument:
+        self.calls += 1
         return WebDocument(
             url=url,
             final_url="https://example.com/final",
@@ -76,6 +106,18 @@ class FakeIngestor:
             source_type="static",
             status_code=200,
         )
+
+
+def make_comparison_result(document, task, models):
+    return ModelComparisonResult(
+        task=task,
+        source_url=document.final_url,
+        ingestion_method=document.source_type,
+        runs=[],
+        fastest_model=models[0],
+        valid_models=list(models),
+        summary="Compared models.",
+    )
 
 
 def test_research_service_summarizes_url_with_structured_result():
@@ -117,3 +159,26 @@ def test_research_service_orchestrates_facts_topics_question_and_report():
     assert [call[0] for call in engine.calls] == ["facts", "topics", "ask", "report"]
     assert engine.calls[0][2] == "gemma3"
     assert engine.calls[2][3] == "gemma3"
+
+
+def test_research_service_compares_url_task_with_single_ingestion():
+    ingestor = FakeIngestor()
+    comparator = FakeComparator()
+    service = ResearchService(
+        llm_provider=FakeProvider(),
+        web_ingestor=ingestor,
+        research_engine=FakeEngine(),
+        model_comparator=comparator,
+    )
+
+    result = service.compare_url_task(
+        url="https://example.com",
+        task="ask",
+        question="What is listed?",
+        models=["llama3.2", "gemma3"],
+    )
+
+    assert result.valid_models == ["llama3.2", "gemma3"]
+    assert ingestor.calls == 1
+    assert comparator.calls[0][0] == "ask"
+    assert comparator.calls[0][3] == ["llama3.2", "gemma3"]
