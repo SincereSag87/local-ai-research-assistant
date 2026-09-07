@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     api_host: str = Field(default="127.0.0.1")
     api_port: int = Field(default=8000, ge=1, le=65_535)
     cors_origins: str = Field(default="http://localhost:7860,http://127.0.0.1:7860")
+    api_base_url: HttpUrl = Field(default="http://127.0.0.1:8000")
+    gradio_host: str = Field(default="127.0.0.1")
+    gradio_port: int = Field(default=7860, ge=1, le=65_535)
 
     @property
     def cors_origin_list(self) -> list[str]:
