@@ -1,18 +1,158 @@
 # LocalAI Research Assistant
 
-LocalAI Research Assistant is a local-first AI engineering portfolio project for ingesting web content, producing structured research outputs, comparing local model behavior, exposing a FastAPI backend, and providing a polished Gradio web UI.
+A local-first AI research platform that ingests webpages, performs grounded research tasks with Ollama models, compares model performance, and exposes the system through CLI, FastAPI, and Gradio interfaces.
 
-It uses Ollama through an OpenAI-compatible interface, so research, evaluation, API, CLI, and UI layers stay model-independent.
+LocalAI Research Assistant is an AI engineering portfolio project built around practical local model workflows: source ingestion, structured prompting, Pydantic validation, model comparison, observability, and a browser-based demo UI.
+
+## Demo
+
+Recommended recruiter demo:
+
+1. Start Ollama and make sure `llama3.2` is available.
+2. Start the FastAPI backend.
+3. Start the Gradio UI.
+4. Open `http://127.0.0.1:7860`.
+5. Enter `https://edwarddonner.com`.
+6. Choose `Summary` and model `llama3.2`.
+7. Run a model comparison with `llama3.2` and `gemma3`.
+8. Open `System / Observability` to inspect request counts, model latency, and task metrics.
+
+Screenshots are not committed yet because the browser automation surface was unavailable during final polish. Add manual screenshots later under `docs/images/` for:
+
+- main Gradio research interface
+- summary/result view
+- model comparison view
+- observability metrics view
+- FastAPI Swagger docs
+
+## Features
+
+- Local Ollama integration through an OpenAI-compatible client
+- Provider abstraction for model-independent research logic
+- `llama3.2` and `gemma3` support
+- Static webpage scraping with BeautifulSoup
+- Playwright fallback for JavaScript-rendered pages
+- Normalized `WebDocument` source model
+- Structured summaries, topics, key facts, grounded Q&A, and research reports
+- JSON-first model outputs with Pydantic validation
+- Source-grounding prompts that instruct models not to invent facts
+- Context truncation for long pages
+- Multi-model comparison on the same ingested document
+- Deterministic evaluation checks for parsing, grounding, completeness, and latency
+- CLI, FastAPI, and Gradio interfaces
+- Health/readiness endpoints
+- Request IDs, structured logging, local metrics, and benchmark runner
+- pytest and Ruff coverage for normal local/CI workflows
+
+## Architecture
+
+```mermaid
+flowchart TD
+    User[User] --> UI[Gradio UI]
+    UI -->|HTTP| API[FastAPI Backend]
+    CLI[CLI] --> Service[ResearchService]
+    API --> Service
+
+    Service --> Ingestor[WebIngestor]
+    Ingestor --> Static[StaticScraper]
+    Ingestor --> Browser[BrowserScraper]
+    Static --> Doc[WebDocument]
+    Browser --> Doc
+
+    Service --> Engine[ResearchEngine]
+    Engine --> Provider[LLMProvider]
+    Provider --> Ollama[Ollama]
+    Ollama --> Llama[llama3.2]
+    Ollama --> Gemma[gemma3]
+
+    Service --> Comparator[ModelComparator]
+    Comparator --> Eval[Evaluation Metrics]
+
+    Observability[Observability: request IDs, logs, metrics, timings] -.-> API
+    Observability -.-> Service
+    Observability -.-> Comparator
+```
+
+## How It Works
+
+```mermaid
+flowchart TD
+    URL[URL] --> Static[Static scrape]
+    Static --> Usable{Content usable?}
+    Usable -->|yes| Document[WebDocument]
+    Usable -->|no| Playwright[Playwright render]
+    Playwright --> Document
+    Document --> Engine[ResearchEngine]
+    Engine --> Prompt[Task prompt]
+    Prompt --> Ollama[Ollama model]
+    Ollama --> JSON[JSON response]
+    JSON --> Pydantic[Pydantic validation]
+    Pydantic --> Result[Grounded structured result]
+```
+
+Model comparison uses the same ingested source for every model:
+
+```mermaid
+flowchart TD
+    Doc[Same WebDocument] --> Llama[llama3.2 run]
+    Doc --> Gemma[gemma3 run]
+    Llama --> Metrics[Evaluation metrics]
+    Gemma --> Metrics
+    Metrics --> Result[Comparison result]
+```
+
+Observability is cross-cutting and intentionally local: request IDs, timing, logs, counters, and benchmark metrics are captured without an external telemetry platform.
+
+## Technology Stack
+
+| Area | Tools |
+| --- | --- |
+| Language/runtime | Python 3.12+, uv |
+| Local models | Ollama, `llama3.2`, `gemma3` |
+| LLM client | OpenAI Python client against Ollama's OpenAI-compatible endpoint |
+| API | FastAPI, Uvicorn |
+| UI | Gradio |
+| Web ingestion | requests, BeautifulSoup4, Playwright |
+| Data modeling | Pydantic, pydantic-settings |
+| Testing/linting | pytest, Ruff |
+| Observability | Python logging, request IDs, in-process metrics |
 
 ## Quick Start
 
-Terminal 1, start the FastAPI backend:
+Prerequisites:
+
+- Python 3.12+
+- `uv`
+- Ollama running locally
+- `llama3.2` pulled in Ollama
+- `gemma3` pulled if you want model comparison
+
+Install dependencies:
+
+```powershell
+uv sync
+```
+
+Install Chromium for Playwright fallback:
+
+```powershell
+uv run playwright install chromium
+```
+
+Pull local models:
+
+```powershell
+ollama pull llama3.2
+ollama pull gemma3
+```
+
+Start the backend:
 
 ```powershell
 uv run uvicorn app.api.app:app --host 127.0.0.1 --port 8000
 ```
 
-Terminal 2, start the Gradio UI:
+Start the UI in a second terminal:
 
 ```powershell
 uv run python -m ui.app
@@ -24,87 +164,162 @@ Open:
 http://127.0.0.1:7860
 ```
 
-## Why Local-First AI
+## Configuration
 
-Local-first AI keeps prompts, extracted page text, generated research outputs, metrics, and comparison results on your machine. That improves privacy, reduces dependency on hosted model services, and makes research workflows easier to run repeatedly without per-request API costs.
-
-Ollama provides local model hosting and an OpenAI-compatible API, which lets this project use the OpenAI Python client while targeting `http://localhost:11434/v1`.
-
-## Current Features
-
-- Python 3.12+ project managed with `uv`
-- Pydantic settings loaded from environment variables or an optional local `.env`
-- OpenAI Python client configured for local Ollama
-- Static website ingestion with BeautifulSoup and Playwright fallback
-- Structured research engine for summaries, facts, topics, Q&A, and reports
-- Model comparison across local Ollama models
-- Deterministic evaluation checks for parsing, completeness, grounding, and latency
-- FastAPI backend with Swagger/OpenAPI
-- Gradio Blocks UI for interactive demos
-- Health panel for API and Ollama readiness
-- System observability tab backed by `/metrics`
-- Structured logging with request IDs
-- Local benchmark runner for comparing tasks across models
-- Centralized API client and UI error handling
-- CLI, API, and UI entry points over the same service stack
-
-## Architecture
+Configuration is loaded from environment variables or an optional local `.env`. No OpenAI API key is required.
 
 ```text
-Gradio UI
-   |
-   v
-FastAPI Backend
-   |
-   |-- Observability Middleware --> Request IDs, Logs, Metrics
-   |
-   v
-ResearchService
-   |
-   |-- WebIngestor --> WebDocument
-   |-- ResearchEngine --> LLMProvider --> Ollama
-   |-- ModelComparator --> Evaluation Metrics
-   |
-   v
-Structured JSON Results
+OLLAMA_BASE_URL=http://localhost:11434/v1
+DEFAULT_MODEL=llama3.2
+HTTP_TIMEOUT=15
+BROWSER_TIMEOUT=20000
+MIN_CONTENT_LENGTH=200
+MAX_CONTEXT_CHARS=12000
+API_HOST=127.0.0.1
+API_PORT=8000
+CORS_ORIGINS=http://localhost:7860,http://127.0.0.1:7860
+API_BASE_URL=http://127.0.0.1:8000
+GRADIO_HOST=127.0.0.1
+GRADIO_PORT=7860
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+LOG_FILE=
 ```
+
+Copy `.env.example` only if you need local overrides:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Do not commit `.env`.
+
+## Using The UI
+
+The Gradio app supports:
+
+- Summary
+- Facts
+- Topics
+- Ask
+- Report
+- Model comparison
+- System / Observability
+
+The UI calls the FastAPI backend over HTTP at `API_BASE_URL`. It does not call the research services directly.
+
+## Using The API
+
+Swagger UI:
 
 ```text
-app/
-  api/                   # FastAPI backend, middleware, routes, error mapping
-  ingestion/             # Static scraper and Playwright fallback
-  llm/                   # LLM provider abstraction and Ollama provider
-  research/              # Prompt builders, parsers, and research engine
-  evaluation/            # Model comparison, metrics, formatter, benchmark runner
-  observability/         # Logging, request IDs, timers, local metrics store
-  services/              # Orchestration layer shared by API and CLI
-
-ui/
-  app.py                 # Gradio Blocks application
-  api_client.py          # Reusable HTTP client for the FastAPI backend
-  components.py          # UI callbacks and component-level helpers
-  formatters.py          # Markdown/table/chart formatting helpers
+http://127.0.0.1:8000/docs
 ```
+
+OpenAPI schema:
+
+```text
+http://127.0.0.1:8000/openapi.json
+```
+
+Endpoints:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | API health check |
+| `GET` | `/health/ollama` | Ollama readiness check |
+| `GET` | `/metrics` | Local observability metrics |
+| `POST` | `/research/generate` | Direct local model generation |
+| `POST` | `/research/summary` | Summarize a webpage |
+| `POST` | `/research/facts` | Extract grounded key facts |
+| `POST` | `/research/topics` | Extract topics |
+| `POST` | `/research/report` | Generate a research report |
+| `POST` | `/research/ask` | Ask a grounded source question |
+| `POST` | `/compare` | Compare models on one task |
+
+PowerShell examples:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/health
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/research/summary `
+  -ContentType "application/json" `
+  -Body '{"url":"https://edwarddonner.com","model":"llama3.2"}'
+
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/research/ask `
+  -ContentType "application/json" `
+  -Body '{"url":"https://edwarddonner.com","question":"What does this person do?","model":"gemma3"}'
+```
+
+Error responses use a consistent shape:
+
+```json
+{
+  "error": {
+    "code": "OLLAMA_UNAVAILABLE",
+    "message": "The local Ollama service is unavailable."
+  }
+}
+```
+
+API responses include `X-Request-ID`.
+
+## Using The CLI
+
+Default local model prompt:
+
+```powershell
+uv run python -m app.main
+```
+
+Research tasks:
+
+```powershell
+uv run python -m app.main --url https://edwarddonner.com --task summary
+uv run python -m app.main --url https://edwarddonner.com --task facts --model gemma3
+uv run python -m app.main --url https://edwarddonner.com --task ask --question "What does this person do?"
+uv run python -m app.main --url https://edwarddonner.com --task report
+```
+
+Model comparison:
+
+```powershell
+uv run python -m app.main --url https://edwarddonner.com --task summary --compare llama3.2 gemma3
+```
+
+## Model Comparison
+
+The comparator runs the same research task against multiple local models using the same `WebDocument`. It records:
+
+- model success/failure
+- model latency
+- response length
+- JSON/Pydantic parse validity
+- required field completeness
+- grounding checks
+- task-specific metrics such as fact count
+
+It does not automatically declare a best model. Speed, parse reliability, completeness, and grounding are separate signals.
 
 ## Observability
 
-Phase 7 adds local-first observability without introducing an external monitoring platform.
+Phase 7 added local observability:
 
-The backend records:
-
-- total request count
-- successful and failed requests
-- average request latency
-- task counts
-- selected model counts
-- average model latency by model
-- scraper/ingestion method counts
-- parsing failure count
-- comparison run count
-- unknown-answer response count
-- error category counts
-
-Every API request receives an `X-Request-ID` response header. If the client sends a safe `X-Request-ID`, the backend reuses it; otherwise it generates a UUID4 request ID. The request ID is also included in structured logs.
+- request IDs
+- total request timing
+- ingestion timing
+- model latency
+- task outcome
+- selected model
+- scraper used
+- parsing success/failure
+- evaluation metrics
+- error categories
+- usage counters
 
 Metrics endpoint:
 
@@ -112,7 +327,7 @@ Metrics endpoint:
 Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/metrics
 ```
 
-Sample metrics shape:
+Example metrics shape:
 
 ```json
 {
@@ -144,48 +359,11 @@ Sample metrics shape:
 }
 ```
 
-The tracing is intentionally lightweight. It uses local timers around request handling, ingestion, model calls, parsing/evaluation, and completion. This is not distributed tracing.
+The metrics store is in-process and resets when the API process restarts.
 
-## Structured Logging
+## Benchmarking
 
-Logging uses Python's standard `logging` module. The default format is JSON-like records to stdout.
-
-Configurable settings:
-
-```text
-LOG_LEVEL=INFO
-LOG_FORMAT=json
-LOG_FILE=
-```
-
-If `LOG_FILE` is set, logs should be written to an ignored runtime directory such as `logs/`.
-
-The system avoids logging:
-
-- scraped page bodies
-- full prompts
-- full environment variables
-- API keys or secrets
-- generated benchmark output files
-
-URLs are logged because they are useful for this portfolio project. In a real production system, URL logging should be reviewed against privacy and data-handling policy.
-
-Tracked error categories include:
-
-- `ingestion_error`
-- `ollama_unavailable`
-- `model_not_found`
-- `parse_error`
-- `validation_error`
-- `llm_error`
-- `internal_error`
-- `model_run_error`
-
-## Benchmark Runner
-
-The benchmark runner executes comparison cases across local models and reports deterministic aggregate signals. It does not claim statistical significance or replace human review.
-
-Run the included sample:
+Run the sample benchmark:
 
 ```powershell
 uv run python -m app.evaluation.benchmark --config benchmarks/sample.json
@@ -197,203 +375,62 @@ JSON output:
 uv run python -m app.evaluation.benchmark --config benchmarks/sample.json --output json
 ```
 
-Each benchmark run records:
+The benchmark runner reports success rate, parse rate, grounding rate, and average latency by model. Results are hardware-specific and should be treated as local diagnostic signals, not scientific benchmarks.
 
-- model
-- task
-- success/failure
-- structured parse validity
-- grounding check
-- completeness check
-- latency
-- response size
-- error if present
+## Testing
 
-Aggregate output includes success rate, parse rate, grounding rate, and average latency by model. Generated benchmark reports should be written to ignored runtime folders if file output is added later.
-
-## Gradio UI
-
-The UI includes:
-
-- webpage URL input
-- model selector for `llama3.2` and `gemma3`
-- research task selector
-- grounded question input for Ask
-- Markdown-rendered research output
-- model comparison tab
-- latency metrics table
-- latency bar chart
-- backend/Ollama health status panel
-- System / Observability tab with metrics tables and simple charts
-
-The UI does not contain research or scraping logic. It calls the FastAPI endpoints over HTTP.
-
-## API Backend
-
-Start the API:
-
-```powershell
-uv run uvicorn app.api.app:app --host 127.0.0.1 --port 8000
-```
-
-Swagger UI:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-OpenAPI schema:
-
-```text
-http://127.0.0.1:8000/openapi.json
-```
-
-Key endpoints:
-
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/health` | API health check |
-| `GET` | `/health/ollama` | Ollama readiness check |
-| `GET` | `/metrics` | Local application metrics |
-| `POST` | `/research/generate` | Direct local model generation |
-| `POST` | `/research/summary` | Summarize a webpage |
-| `POST` | `/research/facts` | Extract grounded key facts |
-| `POST` | `/research/topics` | Extract topics |
-| `POST` | `/research/report` | Generate a structured research report |
-| `POST` | `/research/ask` | Ask a grounded question about a webpage |
-| `POST` | `/compare` | Compare models on one research task |
-
-PowerShell API examples:
-
-```powershell
-Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/health
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8000/research/summary `
-  -ContentType "application/json" `
-  -Body '{"url":"https://edwarddonner.com","model":"llama3.2"}'
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8000/research/ask `
-  -ContentType "application/json" `
-  -Body '{"url":"https://edwarddonner.com","question":"What does this person do?","model":"gemma3"}'
-
-Invoke-RestMethod `
-  -Method Post `
-  -Uri http://127.0.0.1:8000/compare `
-  -ContentType "application/json" `
-  -Body '{"url":"https://edwarddonner.com","task":"summary","models":["llama3.2","gemma3"]}'
-```
-
-## Configuration
-
-Available settings:
-
-```text
-OLLAMA_BASE_URL=http://localhost:11434/v1
-DEFAULT_MODEL=llama3.2
-HTTP_TIMEOUT=15
-BROWSER_TIMEOUT=20000
-MIN_CONTENT_LENGTH=200
-MAX_CONTEXT_CHARS=12000
-API_HOST=127.0.0.1
-API_PORT=8000
-CORS_ORIGINS=http://localhost:7860,http://127.0.0.1:7860
-API_BASE_URL=http://127.0.0.1:8000
-GRADIO_HOST=127.0.0.1
-GRADIO_PORT=7860
-LOG_LEVEL=INFO
-LOG_FORMAT=json
-LOG_FILE=
-```
-
-No OpenAI API key is required.
-
-The UI uses `API_BASE_URL` to call the backend. CORS defaults are scoped to common local UI development origins and do not use unrestricted `*`.
-
-## Setup
-
-Install dependencies:
-
-```powershell
-uv sync
-```
-
-Install Playwright's Chromium browser:
-
-```powershell
-uv run playwright install chromium
-```
-
-Pull the primary local models:
-
-```powershell
-ollama pull llama3.2
-ollama pull gemma3
-```
-
-Copy `.env.example` to `.env` only if you want to override local defaults:
-
-```powershell
-Copy-Item .env.example .env
-```
-
-## CLI
-
-The existing CLI still works:
-
-```powershell
-uv run python -m app.main
-uv run python -m app.main --url https://edwarddonner.com --task summary
-uv run python -m app.main --url https://edwarddonner.com --task facts --model gemma3
-uv run python -m app.main --url https://edwarddonner.com --task summary --compare llama3.2 gemma3
-```
-
-## Screenshots
-
-Screenshots are intentionally not committed yet. This section is reserved for portfolio polish after the UI stabilizes.
-
-## Error Handling
-
-The UI translates API errors into concise messages for unavailable backend, unavailable Ollama, missing models, invalid URLs, scraping failures, parsing failures, and request timeouts. Python stack traces are not shown in the interface.
-
-API errors use a consistent JSON shape:
-
-```json
-{
-  "error": {
-    "code": "OLLAMA_UNAVAILABLE",
-    "message": "The local Ollama service is unavailable."
-  }
-}
-```
-
-## Blocking And Concurrency
-
-The FastAPI routes and Gradio callbacks call blocking ingestion, Playwright, and local model operations. This is acceptable for the local portfolio demo. Higher-throughput concurrency, queues, persistent metrics, and background jobs belong in later phases.
-
-## Test And Lint
+Run the normal test suite:
 
 ```powershell
 uv run pytest
 uv run ruff check .
 ```
 
-The normal tests do not require live websites, Ollama, a real browser session, FastAPI running, or Gradio running. Live UI smoke tests should be run manually with the backend and UI servers running.
+Normal tests use mocks and do not require live websites, Ollama, Playwright browsers, local models, FastAPI running, or Gradio running.
+
+CI runs the same local checks on push and pull request using Python 3.12 and `uv`.
+
+## Engineering Decisions
+
+- Static-first scraping: requests and BeautifulSoup are faster and lighter than browser rendering; Playwright is used only when extracted content is insufficient.
+- Provider abstraction: research logic depends on `LLMProvider`, not directly on Ollama client code.
+- Structured outputs: JSON plus Pydantic validation prevents silently accepting malformed model responses.
+- Source grounding: prompts instruct the model to use only provided webpage content and say when information is missing.
+- Local-first architecture: model execution stays on the developer machine and no cloud API key is required.
+- Synchronous FastAPI routes: underlying scraping and model calls are blocking, so the API avoids fake async abstractions in this phase.
+- In-process observability: local request IDs, metrics, and logs are appropriate for a portfolio demo but are not distributed telemetry.
+- Deterministic evaluation: checks are transparent and testable but are not equivalent to human review or an LLM-as-judge framework.
 
 ## Limitations
 
-This scraper does not attempt to defeat anti-bot systems, authentication, paywalls, or sites that intentionally block automation. Some dynamic applications may still require site-specific extraction logic even with Playwright rendering.
+- Local inference speed depends heavily on hardware and selected model.
+- Webpages with authentication, paywalls, or anti-bot protections may fail.
+- JavaScript-heavy applications may still require site-specific extraction logic.
+- Long pages are truncated; this project does not include RAG, embeddings, or vector search.
+- Metrics are in-process and not persisted.
+- Benchmark results are hardware-specific.
+- Deterministic quality checks can catch obvious failures but cannot prove factual correctness.
+- This project is a local portfolio demo, not a hardened multi-user production service.
 
-The current context strategy truncates long pages without semantic retrieval. Very long pages may lose details from the middle of the document until a later retrieval phase is added.
+## Repository Structure
 
-The deterministic evaluation checks are basic quality signals. They can identify parse failures, missing fields, missing evidence, latency differences, and obvious incomplete outputs, but they do not prove factual correctness or overall answer quality.
+```text
+app/
+  api/                   # FastAPI app, routes, middleware, error handling
+  core/                  # Pydantic settings
+  evaluation/            # Model comparison, deterministic metrics, benchmarks
+  ingestion/             # Static scraper, browser scraper, fallback ingestor
+  llm/                   # Provider interface and Ollama implementation
+  observability/         # Logging, request IDs, timers, metrics store
+  research/              # Prompt builders, parsers, research engine, models
+  services/              # Application orchestration
+ui/                      # Gradio UI and HTTP API client
+tests/                   # Unit and API tests with mocks
+benchmarks/              # Small benchmark configs
+docs/                    # Portfolio notes
+```
 
-Metrics are in-process and reset when the API process restarts. Persistent observability storage belongs in a later phase.
-
-## Roadmap
+## Project Roadmap
 
 1. Core local LLM layer [done]
 2. Website ingestion [done]
@@ -402,4 +439,16 @@ Metrics are in-process and reset when the API process restarts. Persistent obser
 5. FastAPI backend [done]
 6. Gradio UI [done]
 7. Observability & benchmarking [done]
-8. Portfolio polish
+8. Portfolio polish [done]
+
+## Future Work
+
+- Persistent metrics and request history
+- Background jobs for long-running research tasks
+- Deeper evaluation harness with curated expected outputs
+- Optional retrieval layer for very long documents
+- Deployment guide for controlled local or private-network demos
+
+## License
+
+MIT License. See [LICENSE](LICENSE).

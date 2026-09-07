@@ -17,7 +17,7 @@ def create_app() -> FastAPI:
             "Local-first AI research backend for webpage ingestion, grounded research "
             "tasks, and local model comparison."
         ),
-        version="0.7.0",
+        version="1.0.0",
     )
     api.add_middleware(ObservabilityMiddleware)
     api.add_middleware(

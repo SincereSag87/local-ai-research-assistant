@@ -1,6 +1,6 @@
 [project]
 name = "local-ai-research-assistant"
-version = "0.1.0"
+version = "1.0.0"
 description = "A local-first AI research assistant powered by Ollama models through an OpenAI-compatible interface."
 readme = "README.md"
 requires-python = ">=3.12"
