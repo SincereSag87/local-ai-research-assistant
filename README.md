@@ -1,12 +1,12 @@
 # LocalAI Research Assistant
 
-LocalAI Research Assistant is a local-first AI engineering portfolio project for ingesting web content, extracting research-ready text, and summarizing it with locally hosted language models. It uses Ollama through an OpenAI-compatible interface so the core LLM layer stays provider-oriented without requiring hosted API keys.
+LocalAI Research Assistant is a local-first AI engineering portfolio project for ingesting web content, extracting research-ready text, and producing structured research outputs with locally hosted language models. It uses Ollama through an OpenAI-compatible interface, so the research engine stays model-independent and does not require hosted API keys.
 
 This is an original portfolio project designed to demonstrate practical AI engineering patterns with privacy-conscious local inference.
 
 ## Why Local-First AI
 
-Local-first AI keeps prompts, extracted page text, and generated summaries on your machine. That improves privacy, reduces dependency on external model services, and makes research workflows easier to run repeatedly without per-request API costs.
+Local-first AI keeps prompts, extracted page text, and generated research outputs on your machine. That improves privacy, reduces dependency on external model services, and makes research workflows easier to run repeatedly without per-request API costs.
 
 Ollama provides local model hosting and an OpenAI-compatible API, which lets this project use the OpenAI Python client while targeting `http://localhost:11434/v1`.
 
@@ -22,8 +22,10 @@ Ollama provides local model hosting and an OpenAI-compatible API, which lets thi
 - Static website ingestion with `requests` and BeautifulSoup
 - Browser fallback ingestion with Playwright and Chromium
 - Shared `WebDocument` model for normalized web content
-- URL summarization through `ResearchService`
-- CLI modes for direct prompts and URL summaries
+- Research engine for summaries, key facts, topics, question answering, and reports
+- Structured Pydantic research outputs
+- Grounded prompts that require answers to use only extracted page content
+- CLI modes for direct prompts and URL research tasks
 - Offline unit tests with mocked HTTP, browser, and LLM dependencies
 - Ruff linting
 
@@ -33,22 +35,24 @@ Ollama provides local model hosting and an OpenAI-compatible API, which lets thi
 URL
   |
   v
-Static Scraper
+WebIngestor
   |
   v
-Content usable?
-  |-- Yes --> Normalize content --> WebDocument
+WebDocument
   |
-  |-- No --> Playwright fallback --> Normalize content --> WebDocument
-                                                    |
-                                                    v
-                                             ResearchService
-                                                    |
-                                                    v
-                                             Ollama Provider
-                                                    |
-                                                    v
-                                                 Summary
+  v
+Research Engine
+  |-- Summary
+  |-- Key Facts
+  |-- Topics
+  |-- Question Answering
+  |-- Research Report
+  |
+  v
+LLMProvider
+  |
+  v
+Structured Result
 ```
 
 ```text
@@ -65,15 +69,14 @@ app/
     base.py                # Provider interface and provider-level exceptions
     models.py              # Structured chat request/response types
     ollama_provider.py     # Ollama implementation using OpenAI-compatible API
+  research/
+    models.py              # Structured research output models
+    prompts.py             # Model-independent prompt builders
+    parsers.py             # JSON parsing and Pydantic validation
+    engine.py              # Research task orchestration over WebDocument
   services/
-    research_service.py    # Prompt and URL summarization service layer
+    research_service.py    # URL ingestion plus research engine orchestration
   main.py                  # CLI entry point
-tests/
-  test_static_scraper.py
-  test_browser_scraper.py
-  test_web_ingestor.py
-  test_research_service.py
-  test_ollama_provider.py
 ```
 
 ## Website Ingestion Strategy
@@ -82,11 +85,38 @@ The ingestor tries static scraping first because it is faster, has lower overhea
 
 If the static result is too short or looks like a JavaScript-required placeholder, the ingestor falls back to Playwright. The fallback uses headless Chromium to render the page, then sends the rendered HTML through the same normalization path as the static scraper.
 
-The current usability heuristic checks:
+The current usability heuristic checks minimum extracted text length, obvious JavaScript-required messages, and placeholder loading content.
 
-- minimum extracted text length
-- obvious JavaScript-required messages
-- placeholder-only content such as loading screens
+## Research Engine
+
+The research engine consumes `WebDocument` objects rather than raw strings. It builds task-specific prompts, calls any `LLMProvider`, parses JSON responses, and validates them with Pydantic models.
+
+Supported outputs:
+
+- `ResearchSummary`
+- `KeyFact`
+- `QuestionAnswer`
+- `ResearchReport`
+
+The prompts are provider-independent and are kept separate from orchestration logic. That makes the same research task runnable against `llama3.2`, `gemma3`, or future models without changing the research flow.
+
+## Source Grounding
+
+Research prompts instruct the model to use only the extracted webpage content, avoid inventing facts, ignore boilerplate, and explicitly say when information is not present.
+
+For question answering, the expected unknown-answer text is:
+
+```text
+The provided page does not contain enough information to answer this question.
+```
+
+Answers and facts include evidence snippets when practical.
+
+## Context Limit
+
+Phase 3 uses a simple deterministic context strategy rather than full RAG. Extracted page text is capped by `MAX_CONTEXT_CHARS`. If content is too large, the engine preserves the beginning and end of the page text with a clear truncation marker in the middle.
+
+Embeddings, vector databases, and chunk retrieval are intentionally left for later phases.
 
 ## Prerequisites
 
@@ -147,13 +177,14 @@ DEFAULT_MODEL=llama3.2
 HTTP_TIMEOUT=15
 BROWSER_TIMEOUT=20000
 MIN_CONTENT_LENGTH=200
+MAX_CONTEXT_CHARS=12000
 ```
 
 No OpenAI API key is required.
 
 ## Run
 
-Run the original Phase 1 prompt smoke test:
+Run the original direct prompt smoke test:
 
 ```powershell
 uv run python -m app.main
@@ -168,29 +199,37 @@ uv run python -m app.main --model gemma3
 Summarize a URL:
 
 ```powershell
-uv run python -m app.main --url https://edwarddonner.com
+uv run python -m app.main --url https://edwarddonner.com --task summary
 ```
 
-Summarize a URL with Gemma:
+Extract key facts:
 
 ```powershell
-uv run python -m app.main --url https://openai.com --model gemma3
+uv run python -m app.main --url https://edwarddonner.com --task facts
 ```
 
-Use a custom direct prompt:
+Extract topics:
 
 ```powershell
-uv run python -m app.main --prompt "Explain retrieval augmented generation in three sentences."
+uv run python -m app.main --url https://edwarddonner.com --task topics
 ```
 
-URL summary output includes:
+Ask a grounded question:
 
-```text
-URL:
-Title:
-Ingestion method:
-Model:
-Summary:
+```powershell
+uv run python -m app.main --url https://edwarddonner.com --task ask --question "What is Edward Donner's professional background?"
+```
+
+Generate a Markdown-style report:
+
+```powershell
+uv run python -m app.main --url https://edwarddonner.com --task report
+```
+
+Run any URL task with another installed model:
+
+```powershell
+uv run python -m app.main --url https://edwarddonner.com --task facts --model gemma3
 ```
 
 ## Test And Lint
@@ -206,16 +245,17 @@ The normal unit tests do not require live websites, Ollama, or a real browser se
 
 This scraper does not attempt to defeat anti-bot systems, authentication, paywalls, or sites that intentionally block automation. Some dynamic applications may still require site-specific extraction logic even with Playwright rendering.
 
+The current context strategy truncates long pages without semantic retrieval. Very long pages may lose details from the middle of the document until a later retrieval phase is added.
+
 The ingestion layer is designed for useful research extraction, not perfect archival reproduction of every page element.
 
 ## Roadmap
 
-1. Core local LLM layer
-2. Website ingestion with BeautifulSoup and Playwright
-3. Research and summarization engine
+1. Core local LLM layer ✅
+2. Website ingestion ✅
+3. Research engine ✅
 4. Model comparison
 5. FastAPI backend
 6. Gradio UI
 7. Evaluation, testing, and logging
 8. Portfolio polish
-

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     http_timeout: float = Field(default=15.0, gt=0)
     browser_timeout: int = Field(default=20_000, gt=0)
     min_content_length: int = Field(default=200, ge=1)
+    max_context_chars: int = Field(default=12_000, ge=1_000)
 
     model_config = SettingsConfigDict(
         env_file=".env",
