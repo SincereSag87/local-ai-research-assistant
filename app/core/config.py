@@ -13,6 +13,13 @@ class Settings(BaseSettings):
     browser_timeout: int = Field(default=20_000, gt=0)
     min_content_length: int = Field(default=200, ge=1)
     max_context_chars: int = Field(default=12_000, ge=1_000)
+    api_host: str = Field(default="127.0.0.1")
+    api_port: int = Field(default=8000, ge=1, le=65_535)
+    cors_origins: str = Field(default="http://localhost:7860,http://127.0.0.1:7860")
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
     model_config = SettingsConfigDict(
         env_file=".env",

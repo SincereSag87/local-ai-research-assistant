@@ -1,8 +1,8 @@
 # LocalAI Research Assistant
 
-LocalAI Research Assistant is a local-first AI engineering portfolio project for ingesting web content, extracting research-ready text, producing structured research outputs, and comparing local model behavior. It uses Ollama through an OpenAI-compatible interface, so research and evaluation logic stay model-independent.
+LocalAI Research Assistant is a local-first AI engineering portfolio project for ingesting web content, extracting research-ready text, producing structured research outputs, comparing local model behavior, and exposing those capabilities through a FastAPI backend.
 
-This is an original portfolio project designed to demonstrate practical AI engineering patterns with privacy-conscious local inference.
+It uses Ollama through an OpenAI-compatible interface, so research, evaluation, CLI, and API layers stay model-independent.
 
 ## Why Local-First AI
 
@@ -16,124 +16,203 @@ Ollama provides local model hosting and an OpenAI-compatible API, which lets thi
 - Pydantic settings loaded from environment variables or an optional local `.env`
 - OpenAI Python client configured for local Ollama
 - Reusable `LLMProvider` abstraction
-- Ollama provider with model selection
-- Default model: `llama3.2`
-- Optional model override, including `gemma3`
-- Static website ingestion with `requests` and BeautifulSoup
-- Browser fallback ingestion with Playwright and Chromium
-- Shared `WebDocument` model for normalized web content
-- Research engine for summaries, key facts, topics, question answering, and reports
-- Structured Pydantic research outputs
-- Grounded prompts that require answers to use only extracted page content
+- Static website ingestion with BeautifulSoup and Playwright fallback
+- Structured research engine for summaries, facts, topics, Q&A, and reports
 - Model comparison across local Ollama models
 - Lightweight deterministic evaluation metrics
-- Text and JSON comparison output
-- Offline unit tests with mocked HTTP, browser, and LLM dependencies
-- Ruff linting
+- FastAPI backend with Swagger/OpenAPI
+- Centralized API error responses
+- Configurable local-development CORS
+- CLI and API entry points over the same service layer
+- Offline unit tests with mocked HTTP, browser, LLM, and API services
 
 ## Architecture
 
 ```text
-URL
-  |
-  v
-WebIngestor
-  |
-  v
-WebDocument
-  |
-  v
-ResearchEngine
-  |
-  |-- llama3.2
-  |-- gemma3
-  |
-  v
-ModelComparator
-  |
-  v
-Evaluation Metrics
-  |
-  v
-ModelComparisonResult
+HTTP Client / CLI
+      |
+      v
+FastAPI Routes / CLI Commands
+      |
+      v
+ResearchService
+      |
+      |-- WebIngestor --> WebDocument
+      |-- ResearchEngine --> LLMProvider --> Ollama
+      |-- ModelComparator --> Evaluation Metrics
+      |
+      v
+Structured JSON Results
 ```
 
 ```text
 app/
+  api/
+    app.py                 # FastAPI application factory and route registration
+    dependencies.py        # Reusable provider/service/readiness dependencies
+    errors.py              # Centralized domain exception mapping
+    models.py              # API request and health response models
+    routes/
+      health.py
+      research.py
+      comparison.py
   core/
-    config.py              # Pydantic settings for local runtime configuration
+    config.py
   ingestion/
-    base.py                # Scraper interface and ingestion exceptions
-    models.py              # WebDocument and Link models
-    static_scraper.py      # requests + BeautifulSoup static scraper
-    browser_scraper.py     # Playwright Chromium scraper
-    web_ingestor.py        # Static-first fallback orchestration
   llm/
-    base.py                # Provider interface and provider-level exceptions
-    models.py              # Structured chat request/response types
-    ollama_provider.py     # Ollama implementation using OpenAI-compatible API
   research/
-    models.py              # Structured research output models
-    prompts.py             # Model-independent prompt builders
-    parsers.py             # JSON parsing and Pydantic validation
-    engine.py              # Research task orchestration over WebDocument
   evaluation/
-    models.py              # Comparison and metric result models
-    metrics.py             # Deterministic task-specific checks
-    comparator.py          # Multi-model comparison runner
-    formatter.py           # Text and JSON comparison formatting
   services/
-    research_service.py    # URL ingestion plus research/evaluation orchestration
-  main.py                  # CLI entry point
+    research_service.py
+  main.py
 ```
 
-## Website Ingestion Strategy
+Routes stay thin. Domain behavior remains in the existing ingestion, research, evaluation, LLM, and service modules.
 
-The ingestor tries static scraping first because it is faster, has lower overhead, and does not require launching a browser. If the static result is too short or looks like a JavaScript-required placeholder, the ingestor falls back to Playwright.
+## API Overview
 
-## Research Engine
+Start the API:
 
-The research engine consumes `WebDocument` objects rather than raw strings. It builds task-specific prompts, calls any `LLMProvider`, parses JSON responses, and validates them with Pydantic models.
+```powershell
+uv run uvicorn app.api.app:app --host 127.0.0.1 --port 8000 --reload
+```
 
-Supported outputs:
+Open Swagger UI:
 
-- `ResearchSummary`
-- `KeyFact`
-- `QuestionAnswer`
-- `ResearchReport`
+```text
+http://127.0.0.1:8000/docs
+```
 
-The prompts are provider-independent, so the same research task can run against `llama3.2`, `gemma3`, or future models without changing research logic.
+OpenAPI schema:
 
-## Model Comparison
+```text
+http://127.0.0.1:8000/openapi.json
+```
 
-Phase 4 adds side-by-side comparison for the same research task over the same ingested `WebDocument`. The website is not refetched for each model. Only model generation and structured parsing are repeated per model.
+## Endpoints
 
-Comparison supports:
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | API health check |
+| `GET` | `/health/ollama` | Ollama readiness check |
+| `POST` | `/research/generate` | Direct local model generation |
+| `POST` | `/research/summary` | Summarize a webpage |
+| `POST` | `/research/facts` | Extract grounded key facts |
+| `POST` | `/research/topics` | Extract topics |
+| `POST` | `/research/report` | Generate a structured research report |
+| `POST` | `/research/ask` | Ask a grounded question about a webpage |
+| `POST` | `/compare` | Compare models on one research task |
 
-- summaries
-- key facts
-- topics
-- grounded question answering
-- research reports
+## PowerShell Examples
 
-The comparator records per-model success or failure and continues running remaining models if one model fails.
+Health:
 
-## Evaluation Metrics
+```powershell
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/health
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/health/ollama
+```
 
-Evaluation is deterministic and intentionally lightweight. It is useful for portfolio demos and regression checks, but it is not a replacement for human review or a judge-model evaluation system.
+Direct generation:
 
-Supported checks include:
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/research/generate `
+  -ContentType "application/json" `
+  -Body '{"prompt":"Explain local LLMs in three sentences.","model":"llama3.2"}'
+```
 
-- model-call latency in milliseconds
-- response character count and word count
-- structured output validity
-- required field completeness
-- fact evidence presence
-- grounded Q&A behavior
-- explicit insufficient-information behavior
-- task success or failure
+Summarize a URL:
 
-The CLI reports fastest model and valid models, but it does not declare a best model based only on speed.
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/research/summary `
+  -ContentType "application/json" `
+  -Body '{"url":"https://edwarddonner.com","model":"llama3.2"}'
+```
+
+Extract facts with Gemma:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/research/facts `
+  -ContentType "application/json" `
+  -Body '{"url":"https://edwarddonner.com","model":"gemma3"}'
+```
+
+Ask a grounded question:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/research/ask `
+  -ContentType "application/json" `
+  -Body '{"url":"https://edwarddonner.com","question":"What does this person do?","model":"llama3.2"}'
+```
+
+Compare models:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/compare `
+  -ContentType "application/json" `
+  -Body '{"url":"https://edwarddonner.com","task":"summary","models":["llama3.2","gemma3"]}'
+```
+
+Compare a grounded question:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -Uri http://127.0.0.1:8000/compare `
+  -ContentType "application/json" `
+  -Body '{"url":"https://edwarddonner.com","task":"ask","models":["llama3.2","gemma3"],"question":"What does this person do?"}'
+```
+
+## Example Responses
+
+Health:
+
+```json
+{
+  "status": "ok",
+  "service": "local-ai-research-assistant"
+}
+```
+
+Ollama readiness:
+
+```json
+{
+  "status": "ok",
+  "service": "ollama",
+  "base_url": "http://localhost:11434/v1",
+  "default_model": "llama3.2",
+  "reachable": true
+}
+```
+
+Error response:
+
+```json
+{
+  "error": {
+    "code": "OLLAMA_UNAVAILABLE",
+    "message": "The local Ollama service is unavailable."
+  }
+}
+```
+
+## Model Comparison And Evaluation
+
+The comparison API ingests the URL once, then runs the same research task against each requested local model. It records latency with a monotonic clock around model generation only, excluding website ingestion time.
+
+Deterministic metrics include structured-output validity, response length, required field completeness, fact evidence presence, grounded Q&A behavior, insufficient-information behavior, and task success or failure.
+
+These checks are transparent quality signals. They are not equivalent to human evaluation or a judge-model framework.
 
 ## Source Grounding
 
@@ -145,43 +224,33 @@ For question answering, the expected unknown-answer text is:
 The provided page does not contain enough information to answer this question.
 ```
 
-Answers and facts include evidence snippets when practical.
+## Configuration
 
-## Context Limit
-
-The project uses a simple deterministic context strategy rather than full RAG. Extracted page text is capped by `MAX_CONTEXT_CHARS`. If content is too large, the engine preserves the beginning and end of the page text with a clear truncation marker in the middle.
-
-Embeddings, vector databases, and chunk retrieval are intentionally left for later phases.
-
-## Prerequisites
-
-- Python 3.12 or newer
-- `uv`
-- Ollama running locally
-- Playwright Chromium for JavaScript-rendered pages
-
-Install `uv`:
-
-```powershell
-pipx install uv
-```
-
-Install Ollama from:
+Available settings:
 
 ```text
-https://ollama.com
+OLLAMA_BASE_URL=http://localhost:11434/v1
+DEFAULT_MODEL=llama3.2
+HTTP_TIMEOUT=15
+BROWSER_TIMEOUT=20000
+MIN_CONTENT_LENGTH=200
+MAX_CONTEXT_CHARS=12000
+API_HOST=127.0.0.1
+API_PORT=8000
+CORS_ORIGINS=http://localhost:7860,http://127.0.0.1:7860
 ```
 
-Pull the primary local models:
+No OpenAI API key is required.
 
-```powershell
-ollama pull llama3.2
-ollama pull gemma3
-```
+CORS defaults are scoped to common local UI development origins for the planned Gradio phase. The API does not default to unrestricted `*`.
+
+## Blocking And Concurrency
+
+Phase 5 uses synchronous route functions because the current ingestion, Playwright, and local model calls are blocking. This keeps behavior honest and avoids wrapping the existing stack in fake async code. Higher-throughput concurrency, queues, and background jobs belong in a later phase.
 
 ## Setup
 
-Install Python dependencies:
+Install dependencies:
 
 ```powershell
 uv sync
@@ -193,84 +262,22 @@ Install Playwright's Chromium browser:
 uv run playwright install chromium
 ```
 
-Copy `.env.example` to `.env` only if you want to override local defaults:
+Pull the primary local models:
 
 ```powershell
-Copy-Item .env.example .env
+ollama pull llama3.2
+ollama pull gemma3
 ```
 
-Available settings:
+## CLI
 
-```text
-OLLAMA_BASE_URL=http://localhost:11434/v1
-DEFAULT_MODEL=llama3.2
-HTTP_TIMEOUT=15
-BROWSER_TIMEOUT=20000
-MIN_CONTENT_LENGTH=200
-MAX_CONTEXT_CHARS=12000
-```
-
-No OpenAI API key is required.
-
-## Run
-
-Run the original direct prompt smoke test:
+The existing CLI still works:
 
 ```powershell
 uv run python -m app.main
-```
-
-Run a single-model research task:
-
-```powershell
 uv run python -m app.main --url https://edwarddonner.com --task summary
-uv run python -m app.main --url https://edwarddonner.com --task facts
-uv run python -m app.main --url https://edwarddonner.com --task topics
-uv run python -m app.main --url https://edwarddonner.com --task report
-uv run python -m app.main --url https://edwarddonner.com --task ask --question "What does this person do?"
-```
-
-Compare `llama3.2` and `gemma3`:
-
-```powershell
+uv run python -m app.main --url https://edwarddonner.com --task facts --model gemma3
 uv run python -m app.main --url https://edwarddonner.com --task summary --compare llama3.2 gemma3
-uv run python -m app.main --url https://edwarddonner.com --task facts --compare llama3.2 gemma3
-uv run python -m app.main --url https://edwarddonner.com --task report --compare llama3.2 gemma3
-uv run python -m app.main --url https://edwarddonner.com --task ask --question "What does this person do?" --compare llama3.2 gemma3
-```
-
-Emit comparison JSON:
-
-```powershell
-uv run python -m app.main --url https://edwarddonner.com --task summary --compare llama3.2 gemma3 --output json
-```
-
-Sample comparison output:
-
-```text
-Task: summary
-Source: https://edwarddonner.com/
-Ingestion: static
-
-Model: llama3.2
-Latency: 2,814 ms
-Structured output: valid
-Task success: PASS
-Response length: 620 chars
-Completeness: PASS
-Grounding: PASS
-
-Model: gemma3
-Latency: 4,102 ms
-Structured output: valid
-Task success: PASS
-Response length: 715 chars
-Completeness: PASS
-Grounding: PASS
-
-Comparison
-Fastest: llama3.2
-Valid models: llama3.2, gemma3
 ```
 
 ## Test And Lint
@@ -280,7 +287,7 @@ uv run pytest
 uv run ruff check .
 ```
 
-The normal unit tests do not require live websites, Ollama, or a real browser session. Live smoke tests should be run manually through the CLI.
+The normal tests do not require live websites, Ollama, or a real browser session. Live API smoke tests should be run manually after starting Uvicorn.
 
 ## Limitations
 
@@ -296,7 +303,7 @@ The deterministic evaluation checks are basic quality signals. They can identify
 2. Website ingestion ✅
 3. Research engine ✅
 4. Model comparison & evaluation ✅
-5. FastAPI backend
+5. FastAPI backend ✅
 6. Gradio UI
 7. Advanced evaluation/logging
 8. Portfolio polish
