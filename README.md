@@ -1,53 +1,101 @@
 # LocalAI Research Assistant
 
-LocalAI Research Assistant is a local-first AI engineering portfolio project for researching, summarizing, and comparing information with locally hosted language models. Phase 1 builds the foundation: configuration, a reusable LLM provider interface, an Ollama-backed provider, and a command-line smoke test.
+LocalAI Research Assistant is a local-first AI engineering portfolio project for ingesting web content, extracting research-ready text, and summarizing it with locally hosted language models. It uses Ollama through an OpenAI-compatible interface so the core LLM layer stays provider-oriented without requiring hosted API keys.
 
-This is an original portfolio project designed to demonstrate practical AI engineering patterns without depending on hosted model APIs.
+This is an original portfolio project designed to demonstrate practical AI engineering patterns with privacy-conscious local inference.
 
 ## Why Local-First AI
 
-Local-first AI keeps prompts and outputs on your machine, reduces dependency on external services, and makes model behavior easier to inspect. It is a strong fit for research workflows where privacy, repeatability, and cost control matter.
+Local-first AI keeps prompts, extracted page text, and generated summaries on your machine. That improves privacy, reduces dependency on external model services, and makes research workflows easier to run repeatedly without per-request API costs.
 
-Ollama provides a simple way to run models locally while exposing an OpenAI-compatible API. This project uses that interface so the LLM layer can stay clean and provider-oriented.
+Ollama provides local model hosting and an OpenAI-compatible API, which lets this project use the OpenAI Python client while targeting `http://localhost:11434/v1`.
+
+## Current Features
+
+- Python 3.12+ project managed with `uv`
+- Pydantic settings loaded from environment variables or an optional local `.env`
+- OpenAI Python client configured for local Ollama
+- Reusable `LLMProvider` abstraction
+- Ollama provider with model selection
+- Default model: `llama3.2`
+- Optional model override, including `gemma3`
+- Static website ingestion with `requests` and BeautifulSoup
+- Browser fallback ingestion with Playwright and Chromium
+- Shared `WebDocument` model for normalized web content
+- URL summarization through `ResearchService`
+- CLI modes for direct prompts and URL summaries
+- Offline unit tests with mocked HTTP, browser, and LLM dependencies
+- Ruff linting
 
 ## Architecture
+
+```text
+URL
+  |
+  v
+Static Scraper
+  |
+  v
+Content usable?
+  |-- Yes --> Normalize content --> WebDocument
+  |
+  |-- No --> Playwright fallback --> Normalize content --> WebDocument
+                                                    |
+                                                    v
+                                             ResearchService
+                                                    |
+                                                    v
+                                             Ollama Provider
+                                                    |
+                                                    v
+                                                 Summary
+```
 
 ```text
 app/
   core/
     config.py              # Pydantic settings for local runtime configuration
+  ingestion/
+    base.py                # Scraper interface and ingestion exceptions
+    models.py              # WebDocument and Link models
+    static_scraper.py      # requests + BeautifulSoup static scraper
+    browser_scraper.py     # Playwright Chromium scraper
+    web_ingestor.py        # Static-first fallback orchestration
   llm/
     base.py                # Provider interface and provider-level exceptions
     models.py              # Structured chat request/response types
     ollama_provider.py     # Ollama implementation using OpenAI-compatible API
   services/
-    research_service.py    # Application service layer
-  main.py                  # CLI smoke test
+    research_service.py    # Prompt and URL summarization service layer
+  main.py                  # CLI entry point
 tests/
-  test_ollama_provider.py  # Unit tests with mocked provider client
+  test_static_scraper.py
+  test_browser_scraper.py
+  test_web_ingestor.py
+  test_research_service.py
+  test_ollama_provider.py
 ```
 
-## Phase 1 Features
+## Website Ingestion Strategy
 
-- Python 3.12+ project managed with `uv`
-- Pydantic settings loaded from environment variables or an optional local `.env`
-- OpenAI Python client configured for Ollama at `http://localhost:11434/v1`
-- Reusable `LLMProvider` abstraction
-- Ollama provider with model selection
-- Default model: `llama3.2`
-- Optional model override, including `gemma3`
-- Structured chat message and response models
-- Graceful errors for unavailable Ollama, missing models, connection failures, and malformed responses
-- Unit tests that do not require a live Ollama server
-- Ruff linting configuration
+The ingestor tries static scraping first because it is faster, has lower overhead, and does not require launching a browser. Static scraping handles many content pages, blogs, docs, marketing pages, and simple websites well.
+
+If the static result is too short or looks like a JavaScript-required placeholder, the ingestor falls back to Playwright. The fallback uses headless Chromium to render the page, then sends the rendered HTML through the same normalization path as the static scraper.
+
+The current usability heuristic checks:
+
+- minimum extracted text length
+- obvious JavaScript-required messages
+- placeholder-only content such as loading screens
 
 ## Prerequisites
 
 - Python 3.12 or newer
 - `uv`
 - Ollama running locally
+- Playwright Chromium for JavaScript-rendered pages
 
-Install `uv` from the official documentation:
+Install `uv`:
 
 ```powershell
 pipx install uv
@@ -59,13 +107,13 @@ Install Ollama from:
 https://ollama.com
 ```
 
-Start Ollama and pull the default model:
+Pull the default model:
 
 ```powershell
 ollama pull llama3.2
 ```
 
-To test Gemma as an alternate model:
+Optional alternate model:
 
 ```powershell
 ollama pull gemma3
@@ -73,10 +121,16 @@ ollama pull gemma3
 
 ## Setup
 
-Install dependencies and create the virtual environment:
+Install Python dependencies:
 
 ```powershell
 uv sync
+```
+
+Install Playwright's Chromium browser:
+
+```powershell
+uv run playwright install chromium
 ```
 
 Copy `.env.example` to `.env` only if you want to override local defaults:
@@ -90,28 +144,53 @@ Available settings:
 ```text
 OLLAMA_BASE_URL=http://localhost:11434/v1
 DEFAULT_MODEL=llama3.2
+HTTP_TIMEOUT=15
+BROWSER_TIMEOUT=20000
+MIN_CONTENT_LENGTH=200
 ```
 
 No OpenAI API key is required.
 
 ## Run
 
-Run the CLI smoke test with the default model:
+Run the original Phase 1 prompt smoke test:
 
 ```powershell
 uv run python -m app.main
 ```
 
-Run with Gemma if `gemma3` is installed:
+Use a different model:
 
 ```powershell
 uv run python -m app.main --model gemma3
 ```
 
-Use a custom prompt:
+Summarize a URL:
+
+```powershell
+uv run python -m app.main --url https://edwarddonner.com
+```
+
+Summarize a URL with Gemma:
+
+```powershell
+uv run python -m app.main --url https://openai.com --model gemma3
+```
+
+Use a custom direct prompt:
 
 ```powershell
 uv run python -m app.main --prompt "Explain retrieval augmented generation in three sentences."
+```
+
+URL summary output includes:
+
+```text
+URL:
+Title:
+Ingestion method:
+Model:
+Summary:
 ```
 
 ## Test And Lint
@@ -121,7 +200,13 @@ uv run pytest
 uv run ruff check .
 ```
 
-The unit tests mock the OpenAI-compatible client and do not require Ollama to be running.
+The normal unit tests do not require live websites, Ollama, or a real browser session. Live smoke tests should be run manually through the CLI.
+
+## Limitations
+
+This scraper does not attempt to defeat anti-bot systems, authentication, paywalls, or sites that intentionally block automation. Some dynamic applications may still require site-specific extraction logic even with Playwright rendering.
+
+The ingestion layer is designed for useful research extraction, not perfect archival reproduction of every page element.
 
 ## Roadmap
 

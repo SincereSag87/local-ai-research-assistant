@@ -1,5 +1,6 @@
 import argparse
 
+from app.ingestion import IngestionError
 from app.llm import (
     LLMError,
     LLMModelNotFoundError,
@@ -23,6 +24,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_PROMPT,
         help="Prompt to send to the local model.",
     )
+    parser.add_argument(
+        "--url",
+        default=None,
+        help="URL to ingest and summarize with the local model.",
+    )
     return parser
 
 
@@ -33,7 +39,20 @@ def main() -> int:
     model_name = args.model or provider.settings.default_model
 
     try:
+        if args.url:
+            summary = service.summarize_url(url=args.url, model=args.model)
+            print(f"URL: {summary.final_url}")
+            print(f"Title: {summary.title or 'Untitled'}")
+            print(f"Ingestion method: {summary.ingestion_method}")
+            print(f"Model: {summary.model}")
+            print("Summary:")
+            print(summary.summary)
+            return 0
+
         response = service.ask(prompt=args.prompt, model=args.model)
+    except IngestionError as exc:
+        print(f"URL ingestion failed: {exc}")
+        return 1
     except LLMServiceUnavailableError as exc:
         print(f"Ollama unavailable: {exc}")
         return 1
@@ -52,4 +71,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
