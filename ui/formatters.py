@@ -16,6 +16,37 @@ def format_health(api_health: dict[str, Any], ollama_health: dict[str, Any]) -> 
     )
 
 
+def format_observability(
+    api_health: dict[str, Any],
+    ollama_health: dict[str, Any],
+    metrics: dict[str, Any],
+) -> tuple[str, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    requests = metrics.get("requests", {})
+    markdown = "\n\n".join(
+        [
+            "## System Observability",
+            format_health(api_health, ollama_health),
+            (
+                f"**Total requests:** {requests.get('total', 0)}\n\n"
+                f"**Successful requests:** {requests.get('successful', 0)}\n\n"
+                f"**Failed requests:** {requests.get('failed', 0)}\n\n"
+                f"**Average request latency:** "
+                f"{requests.get('average_latency_ms', 0):,.0f} ms\n\n"
+                f"**Comparison runs:** {metrics.get('comparison_runs', 0)}\n\n"
+                f"**Parsing failures:** {metrics.get('parsing_failures', 0)}\n\n"
+                f"**Unknown-answer responses:** "
+                f"{metrics.get('unknown_answer_responses', 0)}"
+            ),
+        ]
+    )
+    return (
+        markdown,
+        _models_dataframe(metrics.get("models", {})),
+        _counts_dataframe(metrics.get("tasks", {}), "task"),
+        _counts_dataframe(metrics.get("ingestion", {}), "method"),
+    )
+
+
 def format_summary(result: dict[str, Any]) -> str:
     return "\n\n".join(
         [
@@ -162,3 +193,26 @@ def _list_section(title: str, items: list[str]) -> str:
 
 def _yes_no(value: Any) -> str:
     return "Yes" if value else "No"
+
+
+def _models_dataframe(models: dict[str, Any]) -> pd.DataFrame:
+    rows = [
+        {
+            "model": model,
+            "requests": values.get("requests", 0),
+            "average_latency_ms": round(values.get("average_latency_ms", 0)),
+            "average_latency_seconds": round(values.get("average_latency_ms", 0) / 1000, 2),
+        }
+        for model, values in models.items()
+    ]
+    return pd.DataFrame(rows, columns=[
+        "model",
+        "requests",
+        "average_latency_ms",
+        "average_latency_seconds",
+    ])
+
+
+def _counts_dataframe(values: dict[str, int], name_column: str) -> pd.DataFrame:
+    rows = [{name_column: key, "count": value} for key, value in values.items()]
+    return pd.DataFrame(rows, columns=[name_column, "count"])

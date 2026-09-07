@@ -5,6 +5,7 @@ from ui.components import (
     MODEL_CHOICES,
     question_visibility,
     refresh_health,
+    refresh_observability,
     run_comparison_task,
     run_research_task,
 )
@@ -99,6 +100,50 @@ def create_ui() -> gr.Blocks:
                     fn=run_comparison_task,
                     inputs=[compare_url, compare_task, compare_models, compare_question],
                     outputs=[comparison_output, comparison_table, latency_chart],
+                )
+
+            with gr.Tab("System / Observability"):
+                observability_status = gr.Markdown()
+                observability_button = gr.Button("Refresh Observability", variant="secondary")
+                model_metrics = gr.Dataframe(label="Model Usage And Latency")
+                task_counts = gr.Dataframe(label="Task Counts")
+                ingestion_counts = gr.Dataframe(label="Ingestion Method Counts")
+                model_latency_chart = gr.BarPlot(
+                    label="Average Model Latency",
+                    x="model",
+                    y="average_latency_seconds",
+                    y_title="Average latency (seconds)",
+                    x_title="Model",
+                )
+                task_count_chart = gr.BarPlot(
+                    label="Requests By Task",
+                    x="task",
+                    y="count",
+                    y_title="Requests",
+                    x_title="Task",
+                )
+
+                observability_button.click(
+                    fn=refresh_observability,
+                    outputs=[
+                        observability_status,
+                        model_metrics,
+                        task_counts,
+                        ingestion_counts,
+                        model_latency_chart,
+                        task_count_chart,
+                    ],
+                )
+                demo.load(
+                    fn=refresh_observability,
+                    outputs=[
+                        observability_status,
+                        model_metrics,
+                        task_counts,
+                        ingestion_counts,
+                        model_latency_chart,
+                        task_count_chart,
+                    ],
                 )
 
         gr.Markdown(

@@ -1,0 +1,17 @@
+{
+  "cases": [
+    {
+      "name": "homepage-summary",
+      "task": "summary",
+      "url": "https://edwarddonner.com",
+      "models": ["llama3.2", "gemma3"]
+    },
+    {
+      "name": "unknown-answer-grounding",
+      "task": "ask",
+      "url": "https://edwarddonner.com",
+      "question": "What is Edward Donner's favorite database engine?",
+      "models": ["llama3.2", "gemma3"]
+    }
+  ]
+}

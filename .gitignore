@@ -11,4 +11,7 @@ build/
 coverage.xml
 .coverage
 htmlcov/
+logs/
+data/
+benchmark_outputs/
 

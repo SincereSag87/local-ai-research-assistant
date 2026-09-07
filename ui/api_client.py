@@ -44,6 +44,9 @@ class LocalAIAPIClient:
     def ollama_health(self) -> dict[str, Any]:
         return self._request("GET", "/health/ollama")
 
+    def metrics(self) -> dict[str, Any]:
+        return self._request("GET", "/metrics")
+
     def generate(self, prompt: str, model: str | None = None) -> dict[str, Any]:
         return self._request("POST", "/research/generate", json={"prompt": prompt, "model": model})
 

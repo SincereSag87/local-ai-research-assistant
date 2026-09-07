@@ -4,7 +4,8 @@ from pydantic import BaseModel, field_validator
 
 from app.core.config import Settings, get_settings
 from app.ingestion import WebDocument
-from app.llm import LLMProvider
+from app.llm import ChatMessage, ChatResponse, LLMProvider
+from app.observability.tracing import timer
 from app.research.models import KeyFact, QuestionAnswer, ResearchReport, ResearchSummary
 from app.research.parsers import parse_model
 from app.research.prompts import (
@@ -64,9 +65,10 @@ class ResearchEngine:
     ) -> None:
         self.llm_provider = llm_provider
         self.settings = settings or get_settings()
+        self.last_model_latency_ms = 0
 
     def summarize(self, document: WebDocument, model: str | None = None) -> ResearchSummary:
-        response = self.llm_provider.generate(
+        response = self._generate(
             messages=build_summary_messages(document, settings=self.settings),
             model=model,
         )
@@ -82,14 +84,14 @@ class ResearchEngine:
         )
 
     def extract_facts(self, document: WebDocument, model: str | None = None) -> list[KeyFact]:
-        response = self.llm_provider.generate(
+        response = self._generate(
             messages=build_fact_extraction_messages(document, settings=self.settings),
             model=model,
         )
         return parse_model(response.content, _FactsPayload).facts
 
     def extract_topics(self, document: WebDocument, model: str | None = None) -> list[str]:
-        response = self.llm_provider.generate(
+        response = self._generate(
             messages=build_topic_extraction_messages(document, settings=self.settings),
             model=model,
         )
@@ -101,7 +103,7 @@ class ResearchEngine:
         question: str,
         model: str | None = None,
     ) -> QuestionAnswer:
-        response = self.llm_provider.generate(
+        response = self._generate(
             messages=build_question_messages(document, question, settings=self.settings),
             model=model,
         )
@@ -115,7 +117,7 @@ class ResearchEngine:
         )
 
     def generate_report(self, document: WebDocument, model: str | None = None) -> ResearchReport:
-        response = self.llm_provider.generate(
+        response = self._generate(
             messages=build_research_report_messages(document, settings=self.settings),
             model=model,
         )
@@ -131,3 +133,9 @@ class ResearchEngine:
             model=response.model,
             ingestion_method=document.source_type,
         )
+
+    def _generate(self, messages: list[ChatMessage], model: str | None) -> ChatResponse:
+        with timer() as model_timer:
+            response = self.llm_provider.generate(messages=messages, model=model)
+        self.last_model_latency_ms = model_timer.elapsed_ms
+        return response

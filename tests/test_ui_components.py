@@ -1,4 +1,9 @@
-from ui.components import refresh_health, run_comparison_task, run_research_task
+from ui.components import (
+    refresh_health,
+    refresh_observability,
+    run_comparison_task,
+    run_research_task,
+)
 
 
 class FakeClient:
@@ -13,6 +18,17 @@ class FakeClient:
             "reachable": True,
             "default_model": "llama3.2",
             "base_url": "http://localhost:11434/v1",
+        }
+
+    def metrics(self):
+        return {
+            "requests": {"total": 1, "successful": 1, "failed": 0, "average_latency_ms": 10},
+            "models": {"llama3.2": {"requests": 1, "average_latency_ms": 200}},
+            "tasks": {"summary": 1},
+            "ingestion": {"static": 1},
+            "comparison_runs": 0,
+            "parsing_failures": 0,
+            "unknown_answer_responses": 0,
         }
 
     def summary(self, url, model):
@@ -94,3 +110,16 @@ def test_comparison_callback_validates_inputs_and_maps_request():
     assert client.calls == [
         ("compare", "https://example.com", "ask", ["llama3.2", "gemma3"], "What?")
     ]
+
+
+def test_refresh_observability_returns_markdown_tables_and_chart_data():
+    markdown, model_df, task_df, ingestion_df, chart_df, task_chart_df = refresh_observability(
+        FakeClient()
+    )
+
+    assert "System Observability" in markdown
+    assert model_df.iloc[0]["model"] == "llama3.2"
+    assert task_df.iloc[0]["task"] == "summary"
+    assert ingestion_df.iloc[0]["method"] == "static"
+    assert chart_df.iloc[0]["average_latency_ms"] == 200
+    assert task_chart_df.iloc[0]["count"] == 1

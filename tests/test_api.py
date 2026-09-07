@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.evaluation import ModelComparisonResult
 from app.ingestion import IngestionError
 from app.llm import LLMModelNotFoundError, LLMServiceUnavailableError
+from app.observability.metrics import get_metrics_store
 from app.research import (
     KeyFact,
     QuestionAnswer,
@@ -114,6 +115,13 @@ def fake_service() -> FakeResearchService:
     return FakeResearchService()
 
 
+@pytest.fixture(autouse=True)
+def reset_metrics_store():
+    get_metrics_store().reset()
+    yield
+    get_metrics_store().reset()
+
+
 @pytest.fixture
 def client(fake_service: FakeResearchService) -> TestClient:
     app = create_app()
@@ -138,7 +146,15 @@ def test_health(client: TestClient):
     response = client.get("/health")
 
     assert response.status_code == 200
+    assert response.headers["X-Request-ID"]
     assert response.json() == {"status": "ok", "service": "local-ai-research-assistant"}
+
+
+def test_incoming_request_id_is_reused(client: TestClient):
+    response = client.get("/health", headers={"X-Request-ID": "phase7-test-id"})
+
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] == "phase7-test-id"
 
 
 def test_ollama_health_reachable(client: TestClient):
@@ -257,6 +273,17 @@ def test_compare_endpoint(client: TestClient, fake_service: FakeResearchService)
     ]
 
 
+def test_metrics_endpoint(client: TestClient):
+    client.get("/health")
+    response = client.get("/metrics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["requests"]["total"] >= 1
+    assert "models" in payload
+    assert "tasks" in payload
+
+
 def test_compare_requires_question_for_ask(client: TestClient):
     response = client.post(
         "/compare",
@@ -301,6 +328,15 @@ def test_error_mapping():
         )
         assert response.status_code == expected_status
         assert response.json()["error"]["code"] == expected_code
+        assert response.headers["X-Request-ID"]
+
+
+def test_validation_error_is_tracked(client: TestClient):
+    response = client.post("/research/summary", json={"url": "ftp://example.com"})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert get_metrics_store().snapshot().errors["validation_error"] == 1
 
 
 def test_openapi_contains_major_endpoints(client: TestClient):
@@ -312,3 +348,4 @@ def test_openapi_contains_major_endpoints(client: TestClient):
     assert "/research/summary" in paths
     assert "/research/ask" in paths
     assert "/compare" in paths
+    assert "/metrics" in paths

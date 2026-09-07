@@ -7,6 +7,7 @@ from ui.formatters import (
     format_comparison,
     format_facts,
     format_health,
+    format_observability,
     format_question,
     format_report,
     format_summary,
@@ -22,6 +23,11 @@ TASK_LABELS = {
 }
 MODEL_CHOICES = ["llama3.2", "gemma3"]
 EMPTY_DF = pd.DataFrame(columns=["model", "latency_seconds"])
+EMPTY_MODEL_METRICS_DF = pd.DataFrame(
+    columns=["model", "requests", "average_latency_ms", "average_latency_seconds"]
+)
+EMPTY_TASK_DF = pd.DataFrame(columns=["task", "count"])
+EMPTY_INGESTION_DF = pd.DataFrame(columns=["method", "count"])
 
 
 def refresh_health(client: LocalAIAPIClient | None = None) -> str:
@@ -30,6 +36,28 @@ def refresh_health(client: LocalAIAPIClient | None = None) -> str:
         return format_health(active_client.health(), active_client.ollama_health())
     except Exception as exc:
         return f"**API:** Offline\n\n**Status:** {format_client_error(exc)}"
+
+
+def refresh_observability(
+    client: LocalAIAPIClient | None = None,
+) -> tuple[str, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    active_client = client or LocalAIAPIClient()
+    try:
+        markdown, model_df, task_df, ingestion_df = format_observability(
+            active_client.health(),
+            active_client.ollama_health(),
+            active_client.metrics(),
+        )
+        return markdown, model_df, task_df, ingestion_df, model_df, task_df
+    except Exception as exc:
+        return (
+            f"## System Observability\n\nUnable to load metrics: {format_client_error(exc)}",
+            EMPTY_MODEL_METRICS_DF,
+            EMPTY_TASK_DF,
+            EMPTY_INGESTION_DF,
+            EMPTY_MODEL_METRICS_DF,
+            EMPTY_TASK_DF,
+        )
 
 
 def run_research_task(

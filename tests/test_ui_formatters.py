@@ -2,6 +2,7 @@ from ui.formatters import (
     format_comparison,
     format_facts,
     format_health,
+    format_observability,
     format_question,
     format_report,
     format_summary,
@@ -123,3 +124,24 @@ def test_format_comparison_returns_markdown_table_and_chart_data():
     assert "Fastest model" in markdown
     assert table.iloc[0]["model"] == "llama3.2"
     assert chart.iloc[0]["latency_seconds"] == 1.5
+
+
+def test_format_observability_returns_metric_tables():
+    markdown, model_df, task_df, ingestion_df = format_observability(
+        {"status": "ok"},
+        {"reachable": True, "default_model": "llama3.2", "base_url": "http://localhost"},
+        {
+            "requests": {"total": 3, "successful": 2, "failed": 1, "average_latency_ms": 50},
+            "models": {"llama3.2": {"requests": 2, "average_latency_ms": 1500}},
+            "tasks": {"summary": 2},
+            "ingestion": {"static": 2},
+            "comparison_runs": 1,
+            "parsing_failures": 0,
+            "unknown_answer_responses": 1,
+        },
+    )
+
+    assert "Total requests" in markdown
+    assert model_df.iloc[0]["average_latency_seconds"] == 1.5
+    assert task_df.iloc[0]["task"] == "summary"
+    assert ingestion_df.iloc[0]["method"] == "static"

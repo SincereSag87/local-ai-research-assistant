@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     api_base_url: HttpUrl = Field(default="http://127.0.0.1:8000")
     gradio_host: str = Field(default="127.0.0.1")
     gradio_port: int = Field(default=7860, ge=1, le=65_535)
+    log_level: str = Field(default="INFO")
+    log_format: str = Field(default="json")
+    log_file: str | None = Field(default=None)
 
     @property
     def cors_origin_list(self) -> list[str]:

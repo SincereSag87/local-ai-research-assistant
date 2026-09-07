@@ -2,7 +2,7 @@
 
 LocalAI Research Assistant is a local-first AI engineering portfolio project for ingesting web content, producing structured research outputs, comparing local model behavior, exposing a FastAPI backend, and providing a polished Gradio web UI.
 
-It uses Ollama through an OpenAI-compatible interface, so research, evaluation, CLI, API, and UI layers stay model-independent.
+It uses Ollama through an OpenAI-compatible interface, so research, evaluation, API, CLI, and UI layers stay model-independent.
 
 ## Quick Start
 
@@ -26,7 +26,7 @@ http://127.0.0.1:7860
 
 ## Why Local-First AI
 
-Local-first AI keeps prompts, extracted page text, generated research outputs, and comparison results on your machine. That improves privacy, reduces dependency on hosted model services, and makes research workflows easier to run repeatedly without per-request API costs.
+Local-first AI keeps prompts, extracted page text, generated research outputs, metrics, and comparison results on your machine. That improves privacy, reduces dependency on hosted model services, and makes research workflows easier to run repeatedly without per-request API costs.
 
 Ollama provides local model hosting and an OpenAI-compatible API, which lets this project use the OpenAI Python client while targeting `http://localhost:11434/v1`.
 
@@ -38,13 +38,15 @@ Ollama provides local model hosting and an OpenAI-compatible API, which lets thi
 - Static website ingestion with BeautifulSoup and Playwright fallback
 - Structured research engine for summaries, facts, topics, Q&A, and reports
 - Model comparison across local Ollama models
-- Lightweight deterministic evaluation metrics
+- Deterministic evaluation checks for parsing, completeness, grounding, and latency
 - FastAPI backend with Swagger/OpenAPI
 - Gradio Blocks UI for interactive demos
 - Health panel for API and Ollama readiness
-- Latency table and chart for model comparison
+- System observability tab backed by `/metrics`
+- Structured logging with request IDs
+- Local benchmark runner for comparing tasks across models
 - Centralized API client and UI error handling
-- CLI and UI entry points over the same FastAPI/service stack
+- CLI, API, and UI entry points over the same service stack
 
 ## Architecture
 
@@ -53,6 +55,8 @@ Gradio UI
    |
    v
 FastAPI Backend
+   |
+   |-- Observability Middleware --> Request IDs, Logs, Metrics
    |
    v
 ResearchService
@@ -66,22 +70,146 @@ Structured JSON Results
 ```
 
 ```text
+app/
+  api/                   # FastAPI backend, middleware, routes, error mapping
+  ingestion/             # Static scraper and Playwright fallback
+  llm/                   # LLM provider abstraction and Ollama provider
+  research/              # Prompt builders, parsers, and research engine
+  evaluation/            # Model comparison, metrics, formatter, benchmark runner
+  observability/         # Logging, request IDs, timers, local metrics store
+  services/              # Orchestration layer shared by API and CLI
+
 ui/
   app.py                 # Gradio Blocks application
   api_client.py          # Reusable HTTP client for the FastAPI backend
   components.py          # UI callbacks and component-level helpers
   formatters.py          # Markdown/table/chart formatting helpers
-
-app/
-  api/                   # FastAPI backend
-  ingestion/             # Static scraper and Playwright fallback
-  llm/                   # LLM provider abstraction and Ollama provider
-  research/              # Prompt builders, parsers, and research engine
-  evaluation/            # Model comparison and deterministic metrics
-  services/              # Orchestration layer shared by API and CLI
 ```
 
-The UI does not contain research or scraping logic. It calls the FastAPI endpoints over HTTP.
+## Observability
+
+Phase 7 adds local-first observability without introducing an external monitoring platform.
+
+The backend records:
+
+- total request count
+- successful and failed requests
+- average request latency
+- task counts
+- selected model counts
+- average model latency by model
+- scraper/ingestion method counts
+- parsing failure count
+- comparison run count
+- unknown-answer response count
+- error category counts
+
+Every API request receives an `X-Request-ID` response header. If the client sends a safe `X-Request-ID`, the backend reuses it; otherwise it generates a UUID4 request ID. The request ID is also included in structured logs.
+
+Metrics endpoint:
+
+```powershell
+Invoke-RestMethod -Method Get -Uri http://127.0.0.1:8000/metrics
+```
+
+Sample metrics shape:
+
+```json
+{
+  "requests": {
+    "total": 25,
+    "successful": 23,
+    "failed": 2,
+    "average_latency_ms": 1520.4
+  },
+  "models": {
+    "llama3.2": {
+      "requests": 15,
+      "average_latency_ms": 18000
+    }
+  },
+  "tasks": {
+    "summary": 8,
+    "facts": 5,
+    "ask": 7
+  },
+  "ingestion": {
+    "static": 22,
+    "browser": 3
+  },
+  "errors": {},
+  "parsing_failures": 0,
+  "comparison_runs": 4,
+  "unknown_answer_responses": 2
+}
+```
+
+The tracing is intentionally lightweight. It uses local timers around request handling, ingestion, model calls, parsing/evaluation, and completion. This is not distributed tracing.
+
+## Structured Logging
+
+Logging uses Python's standard `logging` module. The default format is JSON-like records to stdout.
+
+Configurable settings:
+
+```text
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+LOG_FILE=
+```
+
+If `LOG_FILE` is set, logs should be written to an ignored runtime directory such as `logs/`.
+
+The system avoids logging:
+
+- scraped page bodies
+- full prompts
+- full environment variables
+- API keys or secrets
+- generated benchmark output files
+
+URLs are logged because they are useful for this portfolio project. In a real production system, URL logging should be reviewed against privacy and data-handling policy.
+
+Tracked error categories include:
+
+- `ingestion_error`
+- `ollama_unavailable`
+- `model_not_found`
+- `parse_error`
+- `validation_error`
+- `llm_error`
+- `internal_error`
+- `model_run_error`
+
+## Benchmark Runner
+
+The benchmark runner executes comparison cases across local models and reports deterministic aggregate signals. It does not claim statistical significance or replace human review.
+
+Run the included sample:
+
+```powershell
+uv run python -m app.evaluation.benchmark --config benchmarks/sample.json
+```
+
+JSON output:
+
+```powershell
+uv run python -m app.evaluation.benchmark --config benchmarks/sample.json --output json
+```
+
+Each benchmark run records:
+
+- model
+- task
+- success/failure
+- structured parse validity
+- grounding check
+- completeness check
+- latency
+- response size
+- error if present
+
+Aggregate output includes success rate, parse rate, grounding rate, and average latency by model. Generated benchmark reports should be written to ignored runtime folders if file output is added later.
 
 ## Gradio UI
 
@@ -96,30 +224,9 @@ The UI includes:
 - latency metrics table
 - latency bar chart
 - backend/Ollama health status panel
+- System / Observability tab with metrics tables and simple charts
 
-Supported research tasks:
-
-- Summary
-- Facts
-- Topics
-- Ask
-- Report
-
-## Model Comparison UI
-
-The comparison tab calls `POST /compare` and displays:
-
-- per-model success or failure
-- latency in milliseconds
-- structured-output validity
-- completeness
-- grounding
-- word and character counts
-- fact count when relevant
-- individual model responses where useful
-- fastest model as a latency-only signal
-
-The UI does not declare a universal winner. Latency, completeness, and grounding are shown as separate signals.
+The UI does not contain research or scraping logic. It calls the FastAPI endpoints over HTTP.
 
 ## API Backend
 
@@ -147,6 +254,7 @@ Key endpoints:
 | --- | --- | --- |
 | `GET` | `/health` | API health check |
 | `GET` | `/health/ollama` | Ollama readiness check |
+| `GET` | `/metrics` | Local application metrics |
 | `POST` | `/research/generate` | Direct local model generation |
 | `POST` | `/research/summary` | Summarize a webpage |
 | `POST` | `/research/facts` | Extract grounded key facts |
@@ -196,6 +304,9 @@ CORS_ORIGINS=http://localhost:7860,http://127.0.0.1:7860
 API_BASE_URL=http://127.0.0.1:8000
 GRADIO_HOST=127.0.0.1
 GRADIO_PORT=7860
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+LOG_FILE=
 ```
 
 No OpenAI API key is required.
@@ -261,7 +372,7 @@ API errors use a consistent JSON shape:
 
 ## Blocking And Concurrency
 
-The FastAPI routes and Gradio callbacks call blocking ingestion, Playwright, and local model operations. This is acceptable for the local portfolio demo. Higher-throughput concurrency, queues, and background jobs belong in a later phase.
+The FastAPI routes and Gradio callbacks call blocking ingestion, Playwright, and local model operations. This is acceptable for the local portfolio demo. Higher-throughput concurrency, queues, persistent metrics, and background jobs belong in later phases.
 
 ## Test And Lint
 
@@ -280,13 +391,15 @@ The current context strategy truncates long pages without semantic retrieval. Ve
 
 The deterministic evaluation checks are basic quality signals. They can identify parse failures, missing fields, missing evidence, latency differences, and obvious incomplete outputs, but they do not prove factual correctness or overall answer quality.
 
+Metrics are in-process and reset when the API process restarts. Persistent observability storage belongs in a later phase.
+
 ## Roadmap
 
-1. Core local LLM layer ✅
-2. Website ingestion ✅
-3. Research engine ✅
-4. Model comparison & evaluation ✅
-5. FastAPI backend ✅
-6. Gradio UI ✅
-7. Advanced evaluation/logging
+1. Core local LLM layer [done]
+2. Website ingestion [done]
+3. Research engine [done]
+4. Model comparison & evaluation [done]
+5. FastAPI backend [done]
+6. Gradio UI [done]
+7. Observability & benchmarking [done]
 8. Portfolio polish

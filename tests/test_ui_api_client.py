@@ -25,6 +25,15 @@ def test_api_client_health_success():
     assert make_client(handler).health() == {"status": "ok"}
 
 
+def test_api_client_metrics_success():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/metrics"
+        return httpx.Response(200, json={"requests": {"total": 2}})
+
+    assert make_client(handler).metrics() == {"requests": {"total": 2}}
+
+
 def test_api_client_research_request_mapping():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/research/summary"
